@@ -1,7 +1,13 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, FlatList, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useDispatch, useSelector } from 'react-redux';
+import Animated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate,
+} from 'react-native-reanimated';
 import AppCard from '../../components/AppCard';
 import { AppText } from '../../components/AppText';
 import { TaskPriority } from '../../enums/priority';
@@ -15,19 +21,41 @@ const HomeScreen: React.FC = () => {
   const { top, bottom } = useSafeAreaInsets();
   const flatListRef = useRef<FlatList<Task>>(null);
   const [isReady, setIsReady] = useState<boolean>(false);
-
-  const scrollY = useRef(new Animated.Value(0)).current;
-
+  const scrollY = useSharedValue(0);
   const dispatch = useDispatch<AppDispatch>();
   const { tasks, loading } = useSelector((state: RootState) => state.task);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const headerAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(scrollY.value, [0, HEADER_HEIGHT * 0.5], [1, 0], 'clamp');
+
+    const translateY = interpolate(
+      scrollY.value,
+      [0, HEADER_HEIGHT],
+      [top || 0, -(HEADER_HEIGHT + (top || 0))],
+      'clamp',
+    );
+
+    const scale = interpolate(scrollY.value, [0, HEADER_HEIGHT * 0.5], [1, 0.9], 'clamp');
+
+    return {
+      opacity,
+      transform: [{ translateY }, { scale }],
+    };
+  });
 
   useEffect(() => {
     const loadData = async () => {
       try {
         await dispatch(fetchTasks());
-        setIsReady(true);
       } catch (error) {
         console.error('Failed to fetch tasks:', error);
+      } finally {
         setIsReady(true);
       }
     };
@@ -53,19 +81,22 @@ const HomeScreen: React.FC = () => {
 
   const handleCreateTask = useCallback((): void => {
     const timestamp = Date.now();
+    const twoDaysInMs = 2 * 24 * 60 * 60 * 1000;
+    const deadlineTimestamp = timestamp + twoDaysInMs;
+
     const newTask: Task = {
       id: timestamp.toString(),
-      name: `New Task`,
+      name: `New Task ${new Date(timestamp).toLocaleDateString()}`,
       description: '',
       priority: TaskPriority.MEDIUM,
       completed: false,
       createdAt: timestamp,
       updatedAt: timestamp,
+      deadline: deadlineTimestamp,
     };
 
     dispatch(saveTask(newTask));
   }, [dispatch]);
-
   const renderItem = useCallback(
     ({ item, index }: { item: Task; index: number }) => {
       if (!item || !item.id) return null;
@@ -75,9 +106,7 @@ const HomeScreen: React.FC = () => {
           key={`task-${item.id}`}
           index={index}
           scrollY={scrollY}
-          name={item.name}
-          date={new Date(item.createdAt).toDateString()}
-          priority={item.priority}
+          item={item}
           onUpdateTask={(updatedName: string) => {
             const taskToUpdate = tasks.find((t: Task) => t.id === item.id);
             if (!taskToUpdate) return;
@@ -102,58 +131,23 @@ const HomeScreen: React.FC = () => {
 
   const keyExtractor = useCallback((item: Task) => `task-${item.id}`, []);
 
-  const animatedScrollHandler = Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    { useNativeDriver: false },
-  );
-
-  if (!isReady && loading) {
-    return (
-      <View style={[styles.container, { paddingTop: top }]}>
-        <AppText.H3 style={styles.txtTitle} text='Loading...' />
-      </View>
-    );
-  }
-
-  const opacity = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  });
-
-  const translateY = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT],
-    outputRange: [top || 0, -(HEADER_HEIGHT + (top || 0))],
-    extrapolate: 'clamp',
-  });
-
-  const scale = scrollY.interpolate({
-    inputRange: [0, HEADER_HEIGHT * 0.5],
-    outputRange: [1, 0.9],
-    extrapolate: 'clamp',
-  });
-
-  return (
+  return !isReady && loading ? (
     <View style={[styles.container, { paddingTop: top }]}>
-      <Animated.View
-        style={[
-          styles.header,
-          {
-            opacity: opacity,
-            transform: [{ translateY: translateY }, { scale: scale }],
-          },
-        ]}
-      >
+      <AppText.H3 style={styles.txtTitle} text='Loading...' />
+    </View>
+  ) : (
+    <View style={[styles.container, { paddingTop: top }]}>
+      <Animated.View style={[styles.header, headerAnimatedStyle]}>
         <AppText.H3 style={styles.txtTitle} text={localization['home-page']?.title || 'Tasks'} />
       </Animated.View>
 
-      <FlatList
+      <Animated.FlatList
         ref={flatListRef}
         data={tasks}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
         contentContainerStyle={styles.listContent}
-        onScroll={animatedScrollHandler}
+        onScroll={scrollHandler}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={false}

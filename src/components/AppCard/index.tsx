@@ -1,17 +1,24 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { TextInput, TouchableOpacity, View } from 'react-native';
+import Animated, {
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 import Fontisto from 'react-native-vector-icons/Fontisto';
 import Ionicons from 'react-native-vector-icons/Ionicons';
 import { TaskPriority } from '../../enums/priority';
 import { localization } from '../../localization';
+import { Task } from '../../models/task';
+
 import { AppText } from '../AppText';
 import { styles } from './styles';
 
 interface AppCardProps {
-  name: string;
-  date: string;
-  priority: TaskPriority;
-  scrollY: Animated.Value;
+  item: Task;
+  scrollY: Animated.SharedValue<number>;
   index: number;
   onUpdateTask?: (updatedName: string) => void;
   onRemoveTask?: () => void;
@@ -23,183 +30,197 @@ interface PriorityValue {
   text: string;
 }
 
-const AppCard: React.FC<AppCardProps> = ({
-  name = 'Task Id',
-  date = 'date number',
-  priority = TaskPriority.MEDIUM,
-  scrollY,
-  index = 0,
-  onUpdateTask,
-  onRemoveTask,
-  onClick,
-}) => {
-  const [expanded, setExpanded] = useState<boolean>(false);
-  const [taskName, setTaskName] = useState<string>(name);
-  const [isChecked, setChecked] = useState<boolean>(false);
+const ANIMATION_CONFIG = {
+  duration: 500,
+  easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+};
 
-  const opacity = useRef(new Animated.Value(0)).current;
-  const animatedOpacity = useRef(new Animated.Value(0)).current;
-  const animatedOpacityCollapsed = useRef(new Animated.Value(1)).current;
-  const titleSlideDown = useRef(new Animated.Value(0)).current;
-  const heightAnimation = useRef(new Animated.Value(100)).current;
+const AppCard: React.FC<AppCardProps> = memo(
+  ({ item, scrollY, index = 0, onUpdateTask, onRemoveTask, onClick }) => {
+    const [expanded, setExpanded] = useState<boolean>(false);
+    const [isChecked, setChecked] = useState<boolean>(false);
+    const [taskName, setTaskName] = useState<string>(item.name ?? '');
+    const inputRef = useRef<TextInput>(null);
 
-  const priorityValue = useMemo((): PriorityValue => {
-    switch (priority) {
-      case TaskPriority.HIGH:
-        return {
-          color: '#FF6B6B',
-          text: localization['task']?.priority?.high || 'High',
-        };
-      case TaskPriority.MEDIUM:
-        return {
-          color: '#FFD166',
-          text: localization['task']?.priority?.medium || 'Medium',
-        };
-      case TaskPriority.LOW:
-        return {
-          color: '#06D6A0',
-          text: localization['task']?.priority?.low || 'Low',
-        };
-      default:
-        return {
-          color: '#CCC',
-          text: localization['task']?.priority?.medium || 'Medium',
-        };
-    }
-  }, [priority]);
+    const remainingTime = useMemo(() => {
+      if (!item.deadline) return 'No deadline';
 
-  useEffect(() => {
-    Animated.timing(opacity, {
-      toValue: 1,
-      duration: 300,
-      delay: index * 100,
-      useNativeDriver: true,
-    }).start();
-  }, []);
+      const now = Date.now();
+      const deadlineTime = item.deadline;
+      const timeDiff = deadlineTime - now;
 
-  useEffect(() => {
-    setTaskName(name || '');
-  }, [name]);
+      if (timeDiff < 0) {
+        return 'Overdue';
+      }
 
-  const toggleExpand = (): void => {
-    if (onClick) onClick();
+      const days = Math.floor(timeDiff / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((timeDiff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
 
-    const newExpanded = !expanded;
-    setExpanded(newExpanded);
+      if (days > 0) {
+        return `${days}d ${hours}h left`;
+      } else if (hours > 0) {
+        return `${hours}h left`;
+      } else {
+        const minutes = Math.floor((timeDiff % (1000 * 60 * 60)) / (1000 * 60));
+        return `${minutes}m left`;
+      }
+    }, [item.deadline]);
 
-    titleSlideDown.stopAnimation();
-    animatedOpacity.stopAnimation();
-    animatedOpacityCollapsed.stopAnimation();
-    heightAnimation.stopAnimation();
+    const height = useSharedValue(120);
+    const headerOpacity = useSharedValue(0);
+    const checkboxOpacity = useSharedValue(1);
+    const checkboxWidth = useSharedValue(18);
+    const collapsedInfoOpacity = useSharedValue(1);
+    const expandedInfoOpacity = useSharedValue(0);
 
-    if (newExpanded) {
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(titleSlideDown, {
-            toValue: 1,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-          Animated.timing(animatedOpacityCollapsed, {
-            toValue: 0,
-            duration: 150,
-            useNativeDriver: true,
-          }),
-        ]),
+    const priorityValue = useMemo((): PriorityValue => {
+      switch (item.priority) {
+        case TaskPriority.HIGH:
+          return {
+            color: '#FF6B6B',
+            text: localization['task']?.priority?.high || 'High',
+          };
+        case TaskPriority.MEDIUM:
+          return {
+            color: '#FFD166',
+            text: localization['task']?.priority?.medium || 'Medium',
+          };
+        case TaskPriority.LOW:
+          return {
+            color: '#06D6A0',
+            text: localization['task']?.priority?.low || 'Low',
+          };
+        default:
+          return {
+            color: '#CCC',
+            text: localization['task']?.priority?.medium || 'Medium',
+          };
+      }
+    }, [item.priority]);
 
-        Animated.parallel([
-          Animated.timing(heightAnimation, {
-            toValue: 350,
-            duration: 300,
-            useNativeDriver: false,
-          }),
-          Animated.timing(animatedOpacity, {
-            toValue: 1,
-            duration: 250,
-            useNativeDriver: true,
-          }),
-        ]),
-      ]).start();
-    } else {
-      titleSlideDown.setValue(0);
+    useEffect(() => {
+      height.value = withTiming(expanded ? 300 : 120, ANIMATION_CONFIG);
 
-      Animated.parallel([
-        Animated.timing(animatedOpacity, {
-          toValue: 0,
-          duration: 150,
-          useNativeDriver: true,
-        }),
+      headerOpacity.value = withTiming(expanded ? 1 : 0, ANIMATION_CONFIG);
 
-        Animated.timing(heightAnimation, {
-          toValue: 100,
-          duration: 300,
-          useNativeDriver: false,
-        }),
-      ]).start(() => {
-        Animated.timing(animatedOpacityCollapsed, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }).start();
+      checkboxOpacity.value = withTiming(expanded ? 0 : 1, ANIMATION_CONFIG);
+
+      checkboxWidth.value = withTiming(expanded ? 0 : 18, ANIMATION_CONFIG);
+
+      collapsedInfoOpacity.value = withTiming(expanded ? 0 : 1, {
+        ...ANIMATION_CONFIG,
+        duration: 300,
       });
-    }
-  };
 
-  const safeScrollY = scrollY || new Animated.Value(0);
+      expandedInfoOpacity.value = withTiming(expanded ? 1 : 0, {
+        ...ANIMATION_CONFIG,
+        duration: 300,
+      });
 
-  const translateY = opacity.interpolate({
-    inputRange: [0, 1],
-    outputRange: [50, 0],
-    extrapolate: 'clamp',
-  });
+      if (expanded) {
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 100);
+      }
+    }, [expanded]);
 
-  const rotate = safeScrollY.interpolate({
-    inputRange: [-100, 0, 200 * index, 200 * (index + 5)],
-    outputRange: ['0deg', '0deg', '0deg', '-2deg'],
-    extrapolate: 'clamp',
-  });
+    useEffect(() => {
+      if (expanded) {
+        setTaskName(item.name || '');
+      }
+    }, [expanded, item.name]);
 
-  const scale = safeScrollY.interpolate({
-    inputRange: [-100, 0, 200 * index, 200 * (index + 5)],
-    outputRange: [1, 1, 1, 0.9],
-    extrapolate: 'clamp',
-  });
+    const animatedContainerStyle = useAnimatedStyle(() => {
+      return {
+        height: height.value,
+        minHeight: 120,
+        maxHeight: 300,
+      };
+    });
 
-  const translateX = safeScrollY.interpolate({
-    inputRange: [-100, 0, 200 * index, 200 * (index + 5)],
-    outputRange: [0, 0, 0, index % 2 === 0 ? -5 : 5],
-    extrapolate: 'clamp',
-  });
+    const animatedHeaderStyle = useAnimatedStyle(() => {
+      return {
+        opacity: headerOpacity.value,
+        height: interpolate(headerOpacity.value, [0, 1], [0, 50]),
+        overflow: 'hidden',
+      };
+    });
 
-  const handleRemoveTask = (): void => {
-    if (onRemoveTask) {
-      onRemoveTask();
-    }
-  };
+    const animatedCheckboxStyle = useAnimatedStyle(() => {
+      return {
+        opacity: checkboxOpacity.value,
+        width: checkboxWidth.value,
+        overflow: 'hidden',
+      };
+    });
 
-  const handleSubmit = (): void => {
-    if (onUpdateTask && taskName !== name && taskName.trim() !== '') {
-      onUpdateTask(taskName);
-    }
-    toggleExpand();
-  };
+    const animatedCollapsedContentStyle = useAnimatedStyle(() => {
+      return {
+        opacity: collapsedInfoOpacity.value,
 
-  return (
-    <Animated.View
-      style={[
-        {
-          opacity,
-          transform: [{ translateY }, { scale }, { translateX }, { rotate }],
-        },
-      ]}
-    >
-      <Animated.View style={[styles.container, { height: heightAnimation }]}>
+        transform: [
+          {
+            translateY: interpolate(collapsedInfoOpacity.value, [0, 1], [10, 0]),
+          },
+        ],
+      };
+    });
+
+    const animatedExpandedContentStyle = useAnimatedStyle(() => {
+      return {
+        opacity: expandedInfoOpacity.value,
+
+        transform: [
+          {
+            translateY: interpolate(expandedInfoOpacity.value, [0, 1], [10, 0]),
+          },
+        ],
+      };
+    });
+
+    const toggleExpand = useCallback(() => {
+      setExpanded((prev) => !prev);
+      if (onClick) onClick();
+    }, [onClick]);
+
+    const handleRemoveTask = useCallback((): void => {
+      if (onRemoveTask) {
+        onRemoveTask();
+      }
+    }, [onRemoveTask]);
+
+    const handleSubmit = useCallback((): void => {
+      if (onUpdateTask && taskName !== item.name && taskName.trim() !== '') {
+        onUpdateTask(taskName);
+      }
+      toggleExpand();
+    }, [onUpdateTask, taskName, item.name, toggleExpand]);
+
+    const handleTextChange = useCallback((text: string) => {
+      setTaskName(text);
+    }, []);
+
+    const cardScale = useAnimatedStyle(() => {
+      const inputRange = [(index - 1) * 120, index * 120, (index + 1) * 120];
+      const scale = interpolate(scrollY.value, inputRange, [0.95, 1, 0.95]);
+
+      return {
+        transform: [{ scale }],
+      };
+    });
+
+    const toggleCheckbox = useCallback(() => {
+      setChecked((prev) => !prev);
+    }, []);
+
+    return (
+      <Animated.View style={[styles.container, animatedContainerStyle, cardScale]}>
         <TouchableOpacity style={{ flex: 1 }} onPress={toggleExpand} activeOpacity={0.8}>
-          {expanded && (
+          <Animated.View style={animatedHeaderStyle}>
             <TouchableOpacity
-              activeOpacity={0.8}
+              style={styles.headerContainer}
               onPress={handleRemoveTask}
-              style={styles.btnRemove}
+              activeOpacity={0.8}
             >
               <Ionicons name='trash' size={18} />
               <AppText.Paragraph
@@ -207,112 +228,87 @@ const AppCard: React.FC<AppCardProps> = ({
                 style={{ fontSize: 14 }}
               />
             </TouchableOpacity>
-          )}
-
-          <Animated.View
-            style={{
-              opacity: animatedOpacityCollapsed,
-              transform: [
-                {
-                  translateY: titleSlideDown.interpolate({
-                    inputRange: [0, 1, 2],
-                    outputRange: [0, 20, 40],
-                    extrapolate: 'clamp',
-                  }),
-                },
-              ],
-            }}
-          >
-            {!expanded && (
-              <View style={styles.collapsedContainer}>
-                <Fontisto
-                  name={isChecked ? 'checkbox-active' : 'checkbox-passive'}
-                  size={18}
-                  onPress={() => setChecked(!isChecked)}
-                />
-                <View style={styles.infoCollapsedContainer}>
-                  <View style={styles.infoRowCollapsed}>
-                    <AppText.Paragraph text={name || ''} style={styles.txtTitle} />
-                    <Ionicons name='pencil' size={14} />
-                  </View>
-                  <View style={styles.infoRowCollapsed}>
-                    <AppText.Paragraph
-                      text={priorityValue.text}
-                      style={{ color: priorityValue.color }}
-                    />
-                  </View>
-                </View>
-              </View>
-            )}
           </Animated.View>
 
-          {expanded && (
+          <View style={[styles.cardContainer, { gap: !expanded ? 16 : 0 }]}>
+            <Animated.View style={[animatedCheckboxStyle, { marginTop: 16 }]}>
+              <TouchableOpacity onPress={toggleCheckbox}>
+                <Fontisto name={isChecked ? 'checkbox-active' : 'checkbox-passive'} size={18} />
+              </TouchableOpacity>
+            </Animated.View>
+
             <Animated.View
               style={[
-                styles.inputContainer,
-                {
-                  opacity: animatedOpacity,
-                  transform: [
-                    {
-                      translateY: animatedOpacity.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [10, 0],
-                        extrapolate: 'clamp',
-                      }),
-                    },
-                  ],
-                },
+                styles.infoContainer,
+                animatedCollapsedContentStyle,
+                { position: expanded ? 'absolute' : 'relative', zIndex: expanded ? 0 : 1 },
               ]}
             >
-              <TextInput
-                value={taskName}
-                onChangeText={setTaskName}
-                style={styles.txtInput}
-                autoFocus={true}
-                returnKeyType='done'
-                onSubmitEditing={handleSubmit}
-              />
+              <View style={styles.infoRow}>
+                <AppText.Paragraph text={item.name || ''} style={{ fontWeight: '600' }} />
+                <Ionicons name='pencil' size={14} />
+              </View>
+              <View style={styles.infoRow}>
+                <AppText.Paragraph
+                  text={priorityValue.text}
+                  style={{ color: priorityValue.color }}
+                />
+                <AppText.Paragraph text={remainingTime} />
+              </View>
             </Animated.View>
-          )}
 
-          <Animated.View
-            style={{
-              opacity: animatedOpacity,
-              gap: 16,
-              overflow: 'hidden',
-            }}
-          >
-            <View style={styles.infoRow}>
-              <AppText.Paragraph
-                text={localization['task']?.date || 'Date'}
-                style={styles.txtTitle}
-              />
-              <AppText.Paragraph text={date || ''} />
-            </View>
+            <Animated.View
+              style={[
+                styles.infoContainer,
+                animatedExpandedContentStyle,
+                { position: expanded ? 'relative' : 'absolute', zIndex: expanded ? 1 : 0 },
+              ]}
+            >
+              <Animated.View style={styles.inputContainer}>
+                <TextInput
+                  ref={inputRef}
+                  value={taskName}
+                  onChangeText={handleTextChange}
+                  style={styles.txtInput}
+                  returnKeyType='done'
+                  onSubmitEditing={handleSubmit}
+                />
+              </Animated.View>
+              <View style={styles.infoRow}>
+                <AppText.Paragraph
+                  text={localization['task']?.date || 'Date'}
+                  style={{ fontWeight: '600' }}
+                />
+                <AppText.Paragraph text={new Date(item.createdAt || '').toLocaleDateString()} />
+              </View>
 
-            <View style={styles.divider} />
+              <View style={styles.divider} />
 
-            <View style={styles.infoRow}>
-              <AppText.Paragraph
-                text={localization['task']?.priority?.label || 'Priority'}
-                style={styles.txtTitle}
-              />
-              <AppText.Paragraph text={priorityValue.text} style={{ color: priorityValue.color }} />
-            </View>
+              <View style={styles.infoRow}>
+                <AppText.Paragraph
+                  text={localization['task']?.priority?.label || 'Priority'}
+                  style={{ fontWeight: '600' }}
+                />
+                <AppText.Paragraph
+                  text={priorityValue.text}
+                  style={{ color: priorityValue.color }}
+                />
+              </View>
 
-            <View style={styles.divider} />
+              <View style={styles.divider} />
 
-            <TouchableOpacity style={styles.btnSubmit} activeOpacity={0.8} onPress={handleSubmit}>
-              <AppText.Paragraph
-                text={localization['task']?.submit || 'Submit'}
-                style={styles.txtButtonSubmit}
-              />
-            </TouchableOpacity>
-          </Animated.View>
+              <TouchableOpacity style={styles.btnSubmit} activeOpacity={0.8} onPress={handleSubmit}>
+                <AppText.Paragraph
+                  text={localization['task']?.submit || 'Submit'}
+                  style={styles.txtButtonSubmit}
+                />
+              </TouchableOpacity>
+            </Animated.View>
+          </View>
         </TouchableOpacity>
       </Animated.View>
-    </Animated.View>
-  );
-};
+    );
+  },
+);
 
-export default React.memo(AppCard);
+export default AppCard;

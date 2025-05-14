@@ -14,17 +14,24 @@ export const styles = StyleSheet.create({
         elevation: 3,
         padding: 16,
     },
-    infoRow: {
+    headerContainer: {
+        justifyContent: 'flex-end',
         flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginTop: 16,
+        alignItems: 'center'
     },
-    infoCollapsedContainer: {
+    cardContainer: {
+        width: '100%',
         flex: 1,
-        gap: 16,
+        justifyContent: 'space-between',
+        flexDirection: 'row',
     },
-    infoRowCollapsed: {
+    infoContainer: {
+        flex: 1,
+        width: '100%',
+        justifyContent: 'center',
+        gap: 16
+    },
+    infoRow: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
@@ -32,10 +39,7 @@ export const styles = StyleSheet.create({
     divider: {
         width: '100%',
         height: 1,
-        backgroundColor: '#DDDDDD',
-    },
-    txtTitle: {
-        fontWeight: '600',
+        backgroundColor: '#CCC'
     },
     btnSubmit: {
         height: 30,
@@ -46,31 +50,15 @@ export const styles = StyleSheet.create({
         backgroundColor: '#008000',
         justifyContent: 'center',
         alignItems: 'center',
-        marginTop: 16,
     },
     txtButtonSubmit: {
         color: '#FFF',
         fontSize: 14
     },
-    collapsedContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        width: '100%',
-        gap: 16
-    },
-    btnRemove: {
-        gap: 4,
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        alignSelf: 'flex-end'
-    },
     inputContainer: {
         borderBottomWidth: 1,
         borderBottomColor: '#ccc',
         paddingBottom: 16,
-        marginBottom: 16,
         backgroundColor: '#fff',
     },
     txtInput: {

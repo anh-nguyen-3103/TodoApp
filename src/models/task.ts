@@ -8,4 +8,5 @@ export interface Task {
     completed: boolean;
     createdAt: number;
     updatedAt: number;
+    deadline: number
 }
