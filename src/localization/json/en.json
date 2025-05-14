@@ -1,0 +1,22 @@
+{
+    "splash-page": {
+        "title": "Splash Page"
+    },
+    "home-page": {
+        "title": "To-do list"
+    },
+    "task": {
+        "name": "Name",
+        "date": "Date",
+        "priority": {
+            "label": "Priority",
+            "high": "High",
+            "medium": "Medium",
+            "low": "Low"
+        },
+        "create": "create",
+        "submit": "Submit",
+        "remove": "Remove",
+        "empty": "No tasks available"
+    }
+}
